@@ -2,7 +2,7 @@
 This repository is a companion to my blog post about the extracting and reverse engineering of the MPSShow data format used with some slideshow demos distributed by MicroProse. For more detail please read [my blog post](https://canadianavenger.io/2024/06/13/show-me-the-money/).
 
 
-##The Code
+## The Code
 The code included here is based on what was outlined in the blog post, but is arranged differently than presented there. In this repo there are three C programs, each is a standalone utility for extracting the slideshow MPSShow slideshow data. The code is mostly written to be portable, and should be able to be compiled for Windows, Linux, or Mac. Though some changes may be necessary for declaring the structures as ***packed***, if not using GCC. The code is offered without warranty under the MIT License. Use it as you will personally or commercially, just give credit if you do.
 
 - `mpsextract.c` extracts the slideshow data from the given `.exe` file and saves it as a `.mps` file. All the other programs are written to work with the `.mps` file.
@@ -12,7 +12,7 @@ The code included here is based on what was outlined in the blog post, but is ar
 Currently I have not written any code to encode a custimized slideshow. Some more reverse engineering to decode the remaining data would be needed before this could really be useful. My main goal was to extract teh palette for my MicroProse `.PIC` File Format decoding and rendering efforts.
 
 
-##The MPSShow Format
+## The MPSShow Format
 
 The MPSShow data is appended onto the end of the `.exe` file. The first byte of data defines how many slides are in the slideshow. This is followed by an array of informational records, one for each slide. After that is all of the image data as a continuous block. The general structure of the appended data is. (pseudo-c)
 
