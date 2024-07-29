@@ -13,37 +13,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include "util.h"
+#include "mps-show.h"
 
 #define OUTEXT   ".PAL"   // default extension for the output file
-
-// portability note, this is specific to GCC to pack the structurew without padding
-#pragma pack(push,1)
-typedef struct {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-} pal_entry_t;
-
-// needs to be 835 bytes
-typedef struct {
-    uint8_t name_len;
-    char    name[9];
-    uint8_t desc_len;
-    char    desc[25];
-    uint32_t img_offset;        // offset if image in the file
-    uint16_t mode;              // video mode? or length of unknown data after the palette? 
-    uint16_t img_len;              // 0x13 = 19, and there are 19 bytes after the palette
-    uint32_t unknown32;         // looks to be uninitialized bytes
-    pal_entry_t pal[256];
-    uint8_t unknown[835 - 816]; // unknown data, but likely show flow and control data
-} info_t;
-#pragma pack(pop)
-
-size_t filesize(FILE *f);
-void drop_extension(char *fn);
-char *filename(char *path);
-#define fclose_s(A) if(A) fclose(A); A=NULL
-#define free_s(A) if(A) free(A); A=NULL
 
 int main(int argc, char *argv[]) {
     int rval = -1;
@@ -101,29 +74,22 @@ int main(int argc, char *argv[]) {
     size_t fsz = filesize(fi);
     printf("\tFile Size: %zu\n", fsz);
 
-    int num_slides = fgetc(fi); // we already read in the number when scanning
-    if((EOF == num_slides) || (0 == num_slides)) {
-        printf("File contains no data\n");
+    // read in the mpsshow information block
+    int num_slides = -1;
+    if(NULL == (slide_info = read_mps_show_info_header(fi, &num_slides))) {
+        printf("Error reading MPSShow info block\n");
         goto CLEANUP;
     }
-    printf("Number of slides: %d\n", num_slides);
+
+    // make sure the requested extraction index is valid
     if(xtridx > num_slides) {
         printf("ERROR: Extract index '%d' out of range\n", xtridx);
         goto CLEANUP;
     }
 
-    if(NULL == (slide_info = (info_t *)calloc(num_slides,sizeof(info_t)))) {
-        printf("Error: Unable to allocate info buffer\n");
-        goto CLEANUP;
-    }
-
-    int nr = fread(slide_info, sizeof(info_t), num_slides, fi);
-    if(nr != num_slides) {
-        printf("Error: Unable to read info block\n");
-        goto CLEANUP;
-    }
-
     xtridx--; // adjust for 0 based indexing
+
+    // create the output filename, if one wasn't provided
     if(NULL == fo_name) {
         if(NULL == (fo_name = calloc(1, 16))) {
             printf("Unable to allocate memory\n");
@@ -139,6 +105,7 @@ int main(int argc, char *argv[]) {
         goto CLEANUP;
     }
 
+    // save out the palette
     int nw = fwrite(slide_info[xtridx].pal, sizeof(pal_entry_t), 256, fo);
 
     rval = 0; // clean exit
@@ -150,37 +117,4 @@ CLEANUP:
     free_s(fi_name);
     free_s(fo_name);
     return rval;
-}
-
-/// @brief determins the size of the file
-/// @param f handle to an open file
-/// @return returns the size of the file
-size_t filesize(FILE *f) {
-    size_t szll, cp;
-    cp = ftell(f);           // save current position
-    fseek(f, 0, SEEK_END);   // find the end
-    szll = ftell(f);         // get positon of the end
-    fseek(f, cp, SEEK_SET);  // restore the file position
-    return szll;             // return position of the end as size
-}
-
-/// @brief removes the extension from a filename
-/// @param fn sting pointer to the filename
-void drop_extension(char *fn) {
-    char *extension = strrchr(fn, '.');
-    if(NULL != extension) *extension = 0; // strip out the existing extension
-}
-
-/// @brief Returns the filename portion of a path
-/// @param path filepath string
-/// @return a pointer to the filename portion of the path string
-char *filename(char *path) {
-	int i;
-
-	if(path == NULL || path[0] == '\0')
-		return "";
-	for(i = strlen(path) - 1; i >= 0 && path[i] != '/'; i--);
-	if(i == -1)
-		return "";
-	return &path[i+1];
 }

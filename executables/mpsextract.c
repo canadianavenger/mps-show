@@ -17,58 +17,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <ctype.h>
+#include "util.h"
+#include "mps-show.h"
+#include "dos-exe.h"
 
-// MS-DOS EXE File Header
-typedef struct {
-    char signature[2];      // "MZ"
-    uint16_t len_final;     // number of bytes used in the final block of the file
-    uint16_t num_blocks;    // number of 512 byte blocks, incl final block and "MZ"
-    uint16_t num_reloc;     // number of 4 byte relocation table entries
-    uint16_t pg_header;     // number of 16 byte paragraphs in the file header, incl "MZ"
-    uint16_t pg_mem_extra;  // min number of 16 byte paragraphs extra memory that must be allocated to run
-    uint16_t pg_mem_max;    // max number of 16 byte paragraphs extra memory
-    uint16_t seg_ss;        // stack segment
-    uint16_t seg_sp;        // initial value of SP [SS:SP]
-    uint16_t checksum;      // 0 if unused, otherwas value set so sum=0
-    uint16_t reg_ip;        // initial IP value [CS:IP] (code start within the file, usually 0x100)
-    uint16_t reg_cs;        // offset of the CS segment
-    uint16_t off_reloc;     // offset to relocation table relative to start of exe
-    uint16_t overlay_index; // overlay number, 0 for main exe.
-} dos_exe_hdr_t;
-
-// PORTABILITY note, this pragma is GCC specific
-// and may need to be changed for other compilers
-#pragma pack(push,1)
-typedef struct {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-} pal_entry_t;
-
-// needs to be 835 bytes
-typedef struct {
-    uint8_t name_len;
-    char    name[9];
-    uint8_t desc_len;
-    char    desc[25];
-    uint32_t img_offset;        // offset if image in the file (relative to full EXE)
-    uint16_t mode;              // video mode? or length of unknown data after the palette? 
-    uint16_t img_len;              // 0x13 = 19, and there are 19 bytes after the palette
-    uint32_t unknown32;         // looks to be uninitialized bytes
-    pal_entry_t pal[256];
-    uint8_t unknown[835 - 816]; // unknown data, but likely show flow and control data
-} info_t;
-#pragma pack(pop)
-
-#define MPSRECSZ (835)    // size of MPSShow info record
 #define BUFSZ    (16384)  // size of buffer to use when copying over data
 #define OUTEXT   ".MPS"   // default extension for the output file
-
-size_t filesize(FILE *f);
-void drop_extension(char *fn);
-char *filename(char *path);
-#define fclose_s(A) if(A) fclose(A); A=NULL
-#define free_s(A) if(A) free(A); A=NULL
 
 int main(int argc, char *argv[]) {
     int rval = -1;
@@ -136,20 +90,20 @@ int main(int argc, char *argv[]) {
     }
 
     // check for the EXE signature
-    if(strncmp("MZ", hdr.signature, 2)) {
+    if(strncmp(EXE_SIG, hdr.signature, sizeof(hdr.signature))) {
         printf("Invalid EXE header\n");
         goto CLEANUP;
     }
 
     // do a basic size check
-    size_t exe_sz = ((size_t)hdr.num_blocks - 1) * 512 + hdr.len_final;
+    size_t exe_sz = ((size_t)hdr.num_blocks - 1) * EXE_BLOCK_SZ + hdr.len_final;
     if(fsz == exe_sz) {
         printf("EXE does not contain appended data\n");
         goto CLEANUP;
     }
     printf("Reported EXE size: %zu bytes\n", exe_sz);
 
-    // go to end of true EXE file
+    // go to end of reported EXE file
     fseek(fi, exe_sz, SEEK_SET);
 
     // now we can scan for the beginning of non-null data, 
@@ -192,34 +146,18 @@ int main(int argc, char *argv[]) {
     }
 
     printf("Extracting data to: '%s'\tData Size: %zu\n", fo_name, mps_sz);
-    // allocate our copy buffer
-    if(NULL == (buf = malloc(BUFSZ))) {
-        printf("Unable to allocate buffer\n");
-        goto CLEANUP;
-    }
     // open the output file
     if(NULL == (fo = fopen(fo_name,"wb"))) {
         printf("Error: Unable to open output file\n");
         goto CLEANUP;
     }
 
-    int num_slides = fgetc(fi); // we already read in the number when scanning
-    if((EOF == num_slides) || (0 == num_slides)) {
-        printf("File contains no data\n");
+    int num_slides = -1;
+    if(NULL == (slide_info = read_mps_show_info_header(fi, &num_slides))) {
+        printf("Error reading MPSShow info block\n");
         goto CLEANUP;
     }
     printf("Number of slides: %d\n", num_slides);
-
-    if(NULL == (slide_info = (info_t *)calloc(num_slides,sizeof(info_t)))) {
-        printf("Error: Unable to allocate info buffer\n");
-        goto CLEANUP;
-    }
-
-    nr = fread(slide_info, sizeof(info_t), num_slides, fi);
-    if(nr != num_slides) {
-        printf("Error: Unable to read info block\n");
-        goto CLEANUP;
-    }
 
     // correct the slide offsets from being EXE centric
     // to being relative to the new MPS file
@@ -236,6 +174,11 @@ int main(int argc, char *argv[]) {
     }
 
     // copy the remaining data, print a heartbeat once every BUFSZ block
+    // allocate our copy buffer
+    if(NULL == (buf = malloc(BUFSZ))) {
+        printf("Unable to allocate buffer\n");
+        goto CLEANUP;
+    }
     printf("Copying.");
     do {
         nr = fread(buf, 1, BUFSZ, fi);
@@ -259,35 +202,4 @@ CLEANUP:
     return rval;
 }
 
-/// @brief determins the size of the file
-/// @param f handle to an open file
-/// @return returns the size of the file
-size_t filesize(FILE *f) {
-    size_t szll, cp;
-    cp = ftell(f);           // save current position
-    fseek(f, 0, SEEK_END);   // find the end
-    szll = ftell(f);         // get positon of the end
-    fseek(f, cp, SEEK_SET);  // restore the file position
-    return szll;             // return position of the end as size
-}
 
-/// @brief removes the extension from a filename
-/// @param fn sting pointer to the filename
-void drop_extension(char *fn) {
-    char *extension = strrchr(fn, '.');
-    if(NULL != extension) *extension = 0; // strip out the existing extension
-}
-
-/// @brief Returns the filename portion of a path
-/// @param path filepath string
-/// @return a pointer to the filename portion of the path string
-char *filename(char *path) {
-	int i;
-
-	if(path == NULL || path[0] == '\0')
-		return "";
-	for(i = strlen(path) - 1; i >= 0 && path[i] != '/'; i--);
-	if(i == -1)
-		return "";
-	return &path[i+1];
-}
