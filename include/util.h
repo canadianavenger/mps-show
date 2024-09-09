@@ -1,6 +1,6 @@
 /*
- * mps-show.h 
- * structure definitions for a MicroProse MPSShow file
+ * util.h 
+ * general purpose convenience utility functions and macros
  * 
  * This code is offered without warranty under the MIT License. Use it as you will 
  * personally or commercially, just give credit if you do.
