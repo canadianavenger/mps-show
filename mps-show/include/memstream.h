@@ -6,6 +6,7 @@
  * personally or commercially, just give credit if you do.
  */
 #include <stdint.h>
+#include <stdlib.h>
 
 #ifndef CA_MEMSTREAM
 #define CA_MEMSTREAM
