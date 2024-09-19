@@ -5,7 +5,7 @@
  * This code is offered without warranty under the MIT License. Use it as you will 
  * personally or commercially, just give credit if you do.
  */
-#include <stdlib.h>
+#include <stdint.h>
 
 #ifndef CA_MEMSTREAM
 #define CA_MEMSTREAM
